@@ -1,7 +1,4 @@
-use ksni::{
-    menu::{CheckmarkItem, StandardItem},
-    Icon, MenuItem, ToolTip, Tray,
-};
+use ksni::{menu::StandardItem, Icon, MenuItem, ToolTip, Tray};
 use tokio::sync::mpsc;
 
 use crate::{Action, MenuEntry, SharedModel};
@@ -38,25 +35,17 @@ impl Tray for WireguardTray {
     }
 
     fn icon_name(&self) -> String {
-        if self.model.lock().unwrap().any_connected() {
-            "network-vpn".to_owned()
-        } else {
-            "network-offline".to_owned()
-        }
+        "wireguard".to_owned()
     }
 
     fn icon_pixmap(&self) -> Vec<Icon> {
-        vec![status_icon(self.model.lock().unwrap().any_connected())]
+        wireguard_icons()
     }
 
     fn tool_tip(&self) -> ToolTip {
         let model = self.model.lock().unwrap();
         ToolTip {
-            icon_name: if model.any_connected() {
-                "network-vpn".to_owned()
-            } else {
-                "network-offline".to_owned()
-            },
+            icon_name: "wireguard".to_owned(),
             title: "WireGuard Client".to_owned(),
             description: model.tooltip(),
             ..Default::default()
@@ -78,21 +67,24 @@ impl Tray for WireguardTray {
                 ),
                 MenuEntry::Tunnel(row) => {
                     let action = Action::Toggle(row.name.clone());
-                    let mut label = row.name.replace('_', "__");
+                    let mut label = if row.connected {
+                        format!("✓ {}", row.name)
+                    } else {
+                        format!("  {}", row.name)
+                    }
+                    .replace('_', "__");
                     if let Some(pending) = row.pending {
                         label.push_str(&format!(" ({})", pending.label()));
                     }
                     menu.push(
-                        CheckmarkItem {
+                        StandardItem {
                             label,
-                            checked: row.connected,
                             enabled: row.pending.is_none(),
                             ..Default::default()
                         }
                         .into(),
                     );
-                    // Attach the callback after construction to keep the row data straightforward.
-                    if let Some(MenuItem::Checkmark(item)) = menu.last_mut() {
+                    if let Some(MenuItem::Standard(item)) = menu.last_mut() {
                         item.activate = Box::new(move |tray: &mut Self| tray.send(action.clone()));
                     }
                 }
@@ -102,7 +94,6 @@ impl Tray for WireguardTray {
         menu.push(
             StandardItem {
                 label: "Refresh".to_owned(),
-                icon_name: "view-refresh".to_owned(),
                 activate: Box::new(|tray: &mut Self| tray.send(Action::Refresh)),
                 ..Default::default()
             }
@@ -111,7 +102,6 @@ impl Tray for WireguardTray {
         menu.push(
             StandardItem {
                 label: "Quit".to_owned(),
-                icon_name: "application-exit".to_owned(),
                 activate: Box::new(|tray: &mut Self| tray.send(Action::Quit)),
                 ..Default::default()
             }
@@ -121,36 +111,24 @@ impl Tray for WireguardTray {
     }
 }
 
-/// Generate a small ARGB icon so hosts do not need a particular icon theme installed.
+const WIREGUARD_ICON_24: &[u8] = include_bytes!("../../../resources/icons/wireguard-24.argb");
+const WIREGUARD_ICON_48: &[u8] = include_bytes!("../../../resources/icons/wireguard-48.argb");
+
+/// Return the embedded WireGuard logo in common tray sizes, without requiring an icon theme.
 #[must_use]
-pub fn status_icon(connected: bool) -> Icon {
-    const SIZE: i32 = 24;
-    let (red, green, blue) = if connected {
-        (46, 204, 113)
-    } else {
-        (130, 130, 130)
-    };
-    let mut data = Vec::with_capacity((SIZE * SIZE * 4) as usize);
-    for y in 0..SIZE {
-        for x in 0..SIZE {
-            let dx = x - 11;
-            let dy = y - 11;
-            let distance = dx * dx + dy * dy;
-            let ring = (64..=100).contains(&distance);
-            let keyhole_top = dx * dx + (y - 10) * (y - 10) <= 4;
-            let keyhole_stem = (10..=12).contains(&x) && (12..=16).contains(&y);
-            if ring || keyhole_top || keyhole_stem {
-                data.extend_from_slice(&[255, red, green, blue]);
-            } else {
-                data.extend_from_slice(&[0, 0, 0, 0]);
-            }
-        }
-    }
-    Icon {
-        width: SIZE,
-        height: SIZE,
-        data,
-    }
+pub fn wireguard_icons() -> Vec<Icon> {
+    vec![
+        Icon {
+            width: 24,
+            height: 24,
+            data: WIREGUARD_ICON_24.to_vec(),
+        },
+        Icon {
+            width: 48,
+            height: 48,
+            data: WIREGUARD_ICON_48.to_vec(),
+        },
+    ]
 }
 
 #[cfg(test)]
@@ -184,8 +162,12 @@ mod tests {
             MenuItem::Standard(item) if item.label == "Loading…" && !item.enabled
         ));
         assert!(matches!(menu[1], MenuItem::Separator));
-        assert!(matches!(&menu[2], MenuItem::Standard(item) if item.label == "Refresh"));
-        assert!(matches!(&menu[3], MenuItem::Standard(item) if item.label == "Quit"));
+        assert!(
+            matches!(&menu[2], MenuItem::Standard(item) if item.label == "Refresh" && item.icon_name.is_empty())
+        );
+        assert!(
+            matches!(&menu[3], MenuItem::Standard(item) if item.label == "Quit" && item.icon_name.is_empty())
+        );
     }
 
     #[test]
@@ -202,15 +184,15 @@ mod tests {
         let menu = tray.menu();
         assert!(matches!(
             &menu[0],
-            MenuItem::Checkmark(item)
-                if item.label == "home__vpn" && item.checked && item.enabled
+            MenuItem::Standard(item)
+                if item.label == "✓ home__vpn" && item.enabled && item.icon_name.is_empty()
         ));
         assert!(matches!(
             &menu[1],
-            MenuItem::Checkmark(item)
-                if item.label == "office (connecting…)" && !item.checked && !item.enabled
+            MenuItem::Standard(item)
+                if item.label == "  office (connecting…)" && !item.enabled && item.icon_name.is_empty()
         ));
-        assert_eq!(tray.icon_name(), "network-vpn");
+        assert_eq!(tray.icon_name(), "wireguard");
         assert_eq!(
             tray.tool_tip().description,
             "Active WireGuard tunnels: home_vpn"
@@ -225,7 +207,7 @@ mod tests {
             .unwrap()
             .apply_snapshot(vec![Tunnel::new("home", false)]);
         let menu = tray.menu();
-        if let MenuItem::Checkmark(item) = &menu[0] {
+        if let MenuItem::Standard(item) = &menu[0] {
             (item.activate)(&mut tray);
         } else {
             panic!("first item should be a tunnel");
@@ -248,7 +230,7 @@ mod tests {
     fn inactive_icon_and_empty_menu_have_fallbacks() {
         let (tray, _receiver, model) = fixture();
         model.lock().unwrap().apply_snapshot(Vec::new());
-        assert_eq!(tray.icon_name(), "network-offline");
+        assert_eq!(tray.icon_name(), "wireguard");
         assert_eq!(tray.tool_tip().description, "No active WireGuard tunnels");
         assert!(matches!(
             &tray.menu()[0],
@@ -257,19 +239,18 @@ mod tests {
     }
 
     #[test]
-    fn generated_icons_are_argb_and_reflect_connection_state() {
-        let active = status_icon(true);
-        let inactive = status_icon(false);
-        assert_eq!((active.width, active.height), (24, 24));
-        assert_eq!(active.data.len(), 24 * 24 * 4);
-        assert_ne!(active.data, inactive.data);
-        assert!(active.data.chunks_exact(4).any(|pixel| pixel[0] == 255));
-        assert!(active.data.chunks_exact(4).any(|pixel| pixel[0] == 0));
+    fn wireguard_icons_are_embedded_in_common_sizes() {
+        let icons = wireguard_icons();
+        assert_eq!(icons.len(), 2);
+        assert_eq!((icons[0].width, icons[0].height), (24, 24));
+        assert_eq!((icons[1].width, icons[1].height), (48, 48));
+        assert_eq!(icons[0].data.len(), 24 * 24 * 4);
+        assert_eq!(icons[1].data.len(), 48 * 48 * 4);
+        assert!(icons[0].data.chunks_exact(4).any(|pixel| pixel[0] == 255));
+        assert!(icons[0].data.chunks_exact(4).any(|pixel| pixel[0] == 0));
 
         let (tray, _receiver, _model) = fixture();
-        let rendered = tray.icon_pixmap();
-        assert_eq!(rendered.len(), 1);
-        assert_eq!(rendered[0].data, inactive.data);
+        assert_eq!(tray.icon_pixmap().len(), 2);
     }
 
     #[test]

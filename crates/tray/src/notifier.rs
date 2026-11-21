@@ -68,7 +68,7 @@ impl FdoNotifier {
             .notify(
                 "WireGuard Client",
                 0,
-                "network-vpn",
+                "wireguard",
                 summary,
                 body,
                 Vec::new(),

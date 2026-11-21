@@ -64,6 +64,8 @@ rustPlatform.buildRustPackage {
       "$out/share/polkit-1/actions/dev.wireguardclientgui.policy"
     install -Dm644 ${../resources/wireguard-client-gui.desktop} \
       "$out/share/applications/wireguard-client-gui.desktop"
+    install -Dm644 ${../resources/icons/wireguard-48.png} \
+      "$out/share/icons/hicolor/48x48/apps/wireguard.png"
   '';
 
   meta = {

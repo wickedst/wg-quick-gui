@@ -12,4 +12,4 @@ pub use client::{claim_tray_instance, BackendClient, ClientError, ZbusBackendCli
 pub use controller::{Action, ActionOutcome, Controller};
 pub use model::{MenuEntry, PendingOperation, SharedModel, TrayModel, TunnelRow};
 pub use notifier::{FdoNotifier, Notifier, StderrNotifier};
-pub use tray::{status_icon, WireguardTray};
+pub use tray::{wireguard_icons, WireguardTray};
