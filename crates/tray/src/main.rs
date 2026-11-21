@@ -9,7 +9,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    let client = ZbusBackendClient::system().await?;
+    let client = ZbusBackendClient::system().await;
     let notifier: Arc<dyn Notifier> = match FdoNotifier::session().await {
         Ok(notifier) => Arc::new(notifier),
         Err(error) => {

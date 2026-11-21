@@ -23,7 +23,7 @@ use tokio::{
     time::timeout,
 };
 use wireguard_client_gui::{
-    BackendClient, FdoNotifier, Notifier, StderrNotifier, ZbusBackendClient,
+    claim_tray_instance, BackendClient, FdoNotifier, Notifier, StderrNotifier, ZbusBackendClient,
 };
 use wireguard_client_gui_backend::{serve, AuthorizationError, Authorizer, Backend, PolicyKit};
 use wireguard_client_gui_core::{Wireguard, DBUS_PATH, POLKIT_ACTION};
@@ -293,6 +293,18 @@ async fn notifications_use_the_standard_session_protocol() {
     // Notification delivery errors and stderr fallback are both non-fatal.
     notifier.notify("Ignored", "Ignored").await;
     StderrNotifier.notify("Fallback", "Diagnostic").await;
+}
+
+#[tokio::test]
+async fn tray_instance_name_is_exclusive_within_a_session() {
+    let bus = TestBus::new().await;
+    let first = bus.connect().await;
+    let second = bus.connect().await;
+    assert_ne!(first.unique_name().unwrap(), second.unique_name().unwrap());
+
+    claim_tray_instance(&first).await.unwrap();
+    let error = claim_tray_instance(&second).await.unwrap_err();
+    assert!(matches!(error, zbus::Error::NameTaken));
 }
 
 #[test]

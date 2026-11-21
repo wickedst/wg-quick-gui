@@ -8,7 +8,7 @@ mod notifier;
 mod tray;
 
 pub use app::{run, TrayError};
-pub use client::{BackendClient, ClientError, ZbusBackendClient};
+pub use client::{claim_tray_instance, BackendClient, ClientError, ZbusBackendClient};
 pub use controller::{Action, ActionOutcome, Controller};
 pub use model::{MenuEntry, PendingOperation, SharedModel, TrayModel, TunnelRow};
 pub use notifier::{FdoNotifier, Notifier, StderrNotifier};

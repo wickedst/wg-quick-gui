@@ -10,8 +10,8 @@ use tokio::{
 };
 
 use crate::{
-    Action, ActionOutcome, ClientError, Controller, Notifier, SharedModel, TrayModel,
-    WireguardTray, ZbusBackendClient,
+    claim_tray_instance, Action, ActionOutcome, ClientError, Controller, Notifier, SharedModel,
+    TrayModel, WireguardTray, ZbusBackendClient,
 };
 
 const REFRESH_INTERVAL: Duration = Duration::from_secs(5);
@@ -22,6 +22,9 @@ pub enum TrayError {
     /// System backend connection failed.
     #[error("unable to connect to the WireGuard backend: {0}")]
     Client(#[from] ClientError),
+    /// Session-bus connection or unique-instance registration failed.
+    #[error("unable to register the tray in this desktop session: {0}")]
+    Session(#[from] zbus::Error),
     /// StatusNotifierItem service failed.
     #[error("unable to start the system tray item: {0}")]
     Tray(#[from] ksni::Error),
@@ -49,19 +52,55 @@ impl TrayHandle for KsniTrayHandle {
     }
 }
 
+struct UnavailableClient {
+    error: ClientError,
+}
+
+#[async_trait]
+impl crate::BackendClient for UnavailableClient {
+    async fn snapshot(&self) -> Result<Vec<wireguard_client_gui_core::Tunnel>, ClientError> {
+        Err(self.error.clone())
+    }
+
+    async fn set_connected(&self, _name: &str, _connected: bool) -> Result<(), ClientError> {
+        Err(self.error.clone())
+    }
+}
+
 /// Run the tray until Quit or Ctrl-C. Existing tunnels are never changed during shutdown.
-pub async fn run(client: ZbusBackendClient, notifier: Arc<dyn Notifier>) -> Result<(), TrayError> {
-    let changed = client
-        .changed_stream()
-        .await
-        .ok()
-        .map(|stream| stream.map(|_| ()));
+pub async fn run(
+    client: Result<ZbusBackendClient, ClientError>,
+    notifier: Arc<dyn Notifier>,
+) -> Result<(), TrayError> {
+    let instance_connection = zbus::Connection::session().await?;
+    match claim_tray_instance(&instance_connection).await {
+        // Another autostart mechanism already launched the tray. Exit successfully so a systemd
+        // user service does not keep retrying while the first instance is healthy.
+        Err(zbus::Error::NameTaken) => return Ok(()),
+        result => result?,
+    }
+
     let model = TrayModel::shared();
     let (actions, receiver) = mpsc::unbounded_channel();
     let tray = WireguardTray::new(model.clone(), actions.clone());
     let handle = tray.assume_sni_available(true).spawn().await?;
+
+    let (client, changed) = match client {
+        Ok(client) => {
+            let changed = client
+                .changed_stream()
+                .await
+                .ok()
+                .map(|stream| stream.map(|_| ()));
+            (Arc::new(client) as Arc<dyn crate::BackendClient>, changed)
+        }
+        Err(error) => (
+            Arc::new(UnavailableClient { error }) as Arc<dyn crate::BackendClient>,
+            None,
+        ),
+    };
     run_with_handle(
-        Arc::new(client),
+        client,
         notifier,
         model,
         actions,
@@ -144,7 +183,7 @@ mod tests {
     use wireguard_client_gui_core::Tunnel;
 
     use super::*;
-    use crate::{BackendClient, StderrNotifier};
+    use crate::{BackendClient, MenuEntry, StderrNotifier};
 
     #[derive(Default)]
     struct MockHandle {
@@ -243,5 +282,29 @@ mod tests {
 
         quit_task.await.unwrap();
         assert!(snapshots.load(Ordering::SeqCst) >= 2);
+    }
+
+    #[tokio::test]
+    async fn unavailable_backend_is_rendered_instead_of_fatal() {
+        let error = ClientError("system bus unavailable".to_owned());
+        let model = TrayModel::shared();
+        let controller = Controller::new(
+            Arc::new(UnavailableClient {
+                error: error.clone(),
+            }),
+            Arc::new(StderrNotifier),
+            model.clone(),
+        );
+
+        controller.refresh().await;
+        assert_eq!(
+            model.lock().unwrap().menu_entries(),
+            [MenuEntry::Message("Backend unavailable".to_owned())]
+        );
+
+        let client = UnavailableClient {
+            error: error.clone(),
+        };
+        assert_eq!(client.set_connected("home", true).await, Err(error));
     }
 }

@@ -29,7 +29,10 @@
         }
       );
 
-      nixosModules.default = import ./nix/module.nix;
+      nixosModules.default = {
+        _module.args.self = self;
+        imports = [ ./nix/module.nix ];
+      };
 
       apps = forAllSystems (system: {
         default = {
@@ -81,18 +84,32 @@
                 inherit system;
                 modules = [
                   {
-                    nixpkgs.overlays = [ self.overlays.default ];
-                    services.wireguard-client-gui.enable = true;
+                    services.wireguard-client-gui = {
+                      enable = true;
+                      autostart = true;
+                    };
                   }
                   self.nixosModules.default
                 ];
               };
               service = evaluated.config.systemd.services."dev.wireguardclientgui.Backend";
+              userService = evaluated.config.systemd.user.services.wireguard-client-gui;
             in
+            assert evaluated.config.services.wireguard-client-gui.package == package;
+            assert userService.serviceConfig.ExecStart == nixpkgs.lib.getExe package;
+            assert userService.wantedBy == [ "graphical-session.target" ];
+            assert builtins.elem "d /etc/wireguard 0700 root root -" evaluated.config.systemd.tmpfiles.rules;
             pkgs.writeText "wireguard-client-gui-module.json" (
               builtins.toJSON {
-                inherit (service.serviceConfig) Type BusName ExecStart;
+                backend = {
+                  inherit (service.serviceConfig) Type BusName ExecStart;
+                };
+                autostart = {
+                  inherit (userService.serviceConfig) ExecStart;
+                  wantedBy = userService.wantedBy;
+                };
                 enabled = evaluated.config.services.wireguard-client-gui.enable;
+                tmpfilesRules = evaluated.config.systemd.tmpfiles.rules;
               }
             );
 

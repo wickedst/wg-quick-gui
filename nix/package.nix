@@ -17,6 +17,7 @@
   bash,
 }:
 let
+  cargoToml = builtins.fromTOML (builtins.readFile ../Cargo.toml);
   runtimeTools = [
     wireguard-tools
     iproute2
@@ -33,13 +34,16 @@ let
 in
 rustPlatform.buildRustPackage {
   pname = "wireguard-client-gui";
-  version = "0.1.0";
+  inherit (cargoToml.workspace.package) version;
   inherit src;
 
   cargoLock.lockFile = ../Cargo.lock;
 
   nativeBuildInputs = [ makeWrapper ];
-  nativeCheckInputs = [ dbus ];
+  nativeCheckInputs = [
+    dbus
+    coreutils
+  ];
   env.WIREGUARD_CLIENT_GUI_TEST_SHELL = "${bash}/bin/bash";
 
   cargoTestFlags = [ "--workspace" ];
@@ -64,7 +68,7 @@ rustPlatform.buildRustPackage {
 
   meta = {
     description = "StatusNotifier tray client for wg-quick";
-    homepage = "https://github.com/OWNER/wireguard-client-gui";
+    homepage = "https://github.com/wickedst/wg-quick-gui";
     license = lib.licenses.mit;
     mainProgram = "wireguard-client-gui";
     platforms = lib.platforms.linux;

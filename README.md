@@ -6,23 +6,23 @@ Multiple tunnels are fine, and quitting the app leaves them connected. It works 
 
 ## NixOS
 
-Add the flake input and module, then pop the overlay in your NixOS configuration:
+Add the flake input and module:
 
 ```nix
 # flake.nix
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    wireguard-client-gui.url = "github:OWNER/wireguard-client-gui";
+    wg-quick-gui = {
+      url = "github:wickedst/wg-quick-gui";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { nixpkgs, wireguard-client-gui, ... }: {
+  outputs = { nixpkgs, wg-quick-gui, ... }: {
     nixosConfigurations.IFNAMSIZ = nixpkgs.lib.nixosSystem {
       modules = [
-        ({ ... }: {
-          nixpkgs.overlays = [ wireguard-client-gui.overlays.default ];
-        })
-        wireguard-client-gui.nixosModules.default
+        wg-quick-gui.nixosModules.default
         ./configuration.nix
       ];
     };
@@ -30,7 +30,7 @@ Add the flake input and module, then pop the overlay in your NixOS configuration
 }
 ```
 
-Swap `OWNER` for the GitHub owner and `your-hostname` for your machine's name.
+Swap `your-hostname` for your machine's name. The module uses the flake's own package, so there's no overlay to remember.
 
 Enable the app in `configuration.nix`:
 
@@ -38,7 +38,7 @@ Enable the app in `configuration.nix`:
 services.wireguard-client-gui = {
   enable = true;
 
-  # Optional: start it automatically when you log in.
+  # Optional: start it automatically in graphical sessions.
   autostart = true;
 };
 ```
@@ -49,9 +49,21 @@ Rebuild NixOS. If you've left autostart off, just run:
 wireguard-client-gui
 ```
 
-You'll need a polkit authentication agent running; it'll ask for admin authorisation when you change a tunnel. Waybar users only need its standard `tray` module enabled.
-
 There's no need to install `wg` or `wg-quick` separately — Nix sorts all that out for you.
+
+## If there's no icon
+
+- **Already logged in?** New autostart entries won't magically start in your current session. Log out and back in, or run:
+  ```sh
+  systemctl --user daemon-reload
+  systemctl --user start wireguard-client-gui.service
+  ```
+  On desktops that only use XDG autostart, log out/in or start `xdg-desktop-autostart.target` instead.
+- **Check the tray host.** You need a StatusNotifierWatcher, such as Waybar's standard `tray` module. Without one, there's nowhere for the icon to go.
+- **Check polkit.** A polkit authentication agent must be running, or connect/disconnect can't ask for admin authorisation.
+- **Check the logs.** With the systemd user unit enabled, run `journalctl --user -u wireguard-client-gui.service`.
+
+The app reads `/etc/wireguard/*.conf`. NixOS's `networking.wireguard.interfaces` writes to `/run/wireguard`, so those declaratively managed tunnels won't show up here.
 
 ## Checks
 

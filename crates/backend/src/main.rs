@@ -15,6 +15,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let authorizer = Arc::new(PolicyKit::new(connection.clone()));
     let backend = Backend::new(config.wireguard(), authorizer);
     let _connection = serve(backend, connection).await?;
-    std::future::pending::<()>().await;
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    tokio::select! {
+        result = tokio::signal::ctrl_c() => result?,
+        _ = terminate.recv() => {},
+    }
     Ok(())
 }

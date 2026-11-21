@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use async_trait::async_trait;
 use thiserror::Error;
 use wireguard_client_gui_core::Tunnel;
-use zbus::{proxy, Connection};
+use zbus::{fdo::RequestNameFlags, proxy, Connection};
 
 /// Failure returned by the backend client.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -49,6 +49,17 @@ pub trait BackendApi {
 
     #[zbus(signal)]
     fn changed(&self) -> zbus::fdo::Result<()>;
+}
+
+/// Session-bus name used to keep XDG and systemd autostart from launching duplicates.
+pub const TRAY_INSTANCE_NAME: &str = "dev.wireguardclientgui.Tray";
+
+/// Claim the unique tray instance name for the lifetime of a session-bus connection.
+pub async fn claim_tray_instance(connection: &Connection) -> zbus::Result<()> {
+    connection
+        .request_name_with_flags(TRAY_INSTANCE_NAME, RequestNameFlags::DoNotQueue.into())
+        .await
+        .map(|_| ())
 }
 
 /// System D-Bus backend client.
