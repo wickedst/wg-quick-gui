@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=WireGuard Client
+Comment=Manage wg-quick tunnels from the system tray
+Exec=wireguard-client-gui
+Icon=network-vpn
+Terminal=false
+Categories=Network;
+Keywords=WireGuard;VPN;wg-quick;
+StartupNotify=false

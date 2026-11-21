@@ -1,0 +1,28 @@
+[workspace]
+members = ["crates/core", "crates/backend", "crates/tray"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+repository = "https://github.com/OWNER/wireguard-client-gui"
+
+[workspace.dependencies]
+async-trait = "0.1"
+futures-util = "0.3"
+ksni = "0.3"
+thiserror = "2"
+tokio = { version = "1", features = ["io-util", "macros", "process", "rt", "rt-multi-thread", "signal", "sync", "time"] }
+zbus = { version = "5", features = ["tokio"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "deny"
+
+[profile.release]
+lto = "thin"
+strip = "symbols"

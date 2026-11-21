@@ -1,0 +1,24 @@
+[package]
+name = "wireguard-client-gui"
+description = "StatusNotifier tray client for wg-quick"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+futures-util.workspace = true
+ksni.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+wireguard-client-gui-core = { path = "../core" }
+zbus.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+wireguard-client-gui-backend = { path = "../backend" }
+
+[lints]
+workspace = true

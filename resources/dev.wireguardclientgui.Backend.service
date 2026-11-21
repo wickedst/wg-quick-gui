@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=dev.wireguardclientgui.Backend
+SystemdService=dev.wireguardclientgui.Backend.service
