@@ -1,19 +1,34 @@
 use ksni::{menu::StandardItem, Icon, MenuItem, ToolTip, Tray};
 use tokio::sync::mpsc;
 
-use crate::{Action, MenuEntry, SharedModel};
+use crate::{Action, MenuEntry, SharedModel, Theme};
 
 /// Toolkit-free StatusNotifierItem tray.
 pub struct WireguardTray {
     model: SharedModel,
     actions: mpsc::UnboundedSender<Action>,
+    theme: Theme,
 }
 
 impl WireguardTray {
     /// Construct a tray backed by shared state and an action channel.
     #[must_use]
     pub fn new(model: SharedModel, actions: mpsc::UnboundedSender<Action>) -> Self {
-        Self { model, actions }
+        Self::with_theme(model, actions, Theme::default())
+    }
+
+    /// Construct a tray with an explicit light or dark icon theme.
+    #[must_use]
+    pub fn with_theme(
+        model: SharedModel,
+        actions: mpsc::UnboundedSender<Action>,
+        theme: Theme,
+    ) -> Self {
+        Self {
+            model,
+            actions,
+            theme,
+        }
     }
 
     fn send(&self, action: Action) {
@@ -35,11 +50,12 @@ impl Tray for WireguardTray {
     }
 
     fn icon_name(&self) -> String {
-        "wireguard".to_owned()
+        // Force hosts to use the state- and theme-specific pixmaps rather than a static theme icon.
+        String::new()
     }
 
     fn icon_pixmap(&self) -> Vec<Icon> {
-        wireguard_icons()
+        wireguard_icons(self.model.lock().unwrap().any_connected(), self.theme)
     }
 
     fn tool_tip(&self) -> ToolTip {
@@ -70,7 +86,7 @@ impl Tray for WireguardTray {
                     let mut label = if row.connected {
                         format!("✓ {}", row.name)
                     } else {
-                        format!("  {}", row.name)
+                        row.name.clone()
                     }
                     .replace('_', "__");
                     if let Some(pending) = row.pending {
@@ -111,22 +127,40 @@ impl Tray for WireguardTray {
     }
 }
 
-const WIREGUARD_ICON_24: &[u8] = include_bytes!("../../../resources/icons/wireguard-24.argb");
-const WIREGUARD_ICON_48: &[u8] = include_bytes!("../../../resources/icons/wireguard-48.argb");
+const DARK_ACTIVE_ICON_24: &[u8] = include_bytes!("../../../resources/icons/wireguard-24.argb");
+const DARK_ACTIVE_ICON_48: &[u8] = include_bytes!("../../../resources/icons/wireguard-48.argb");
+const DARK_INACTIVE_ICON_24: &[u8] =
+    include_bytes!("../../../resources/icons/wireguard-inactive-24.argb");
+const DARK_INACTIVE_ICON_48: &[u8] =
+    include_bytes!("../../../resources/icons/wireguard-inactive-48.argb");
+const LIGHT_ACTIVE_ICON_24: &[u8] =
+    include_bytes!("../../../resources/icons/wireguard-light-active-24.argb");
+const LIGHT_ACTIVE_ICON_48: &[u8] =
+    include_bytes!("../../../resources/icons/wireguard-light-active-48.argb");
+const LIGHT_INACTIVE_ICON_24: &[u8] =
+    include_bytes!("../../../resources/icons/wireguard-light-inactive-24.argb");
+const LIGHT_INACTIVE_ICON_48: &[u8] =
+    include_bytes!("../../../resources/icons/wireguard-light-inactive-48.argb");
 
-/// Return the embedded WireGuard logo in common tray sizes, without requiring an icon theme.
+/// Return the dragon-only WireGuard logo in common tray sizes and connection-state colours.
 #[must_use]
-pub fn wireguard_icons() -> Vec<Icon> {
+pub fn wireguard_icons(connected: bool, theme: Theme) -> Vec<Icon> {
+    let (data_24, data_48) = match (theme, connected) {
+        (Theme::Dark, true) => (DARK_ACTIVE_ICON_24, DARK_ACTIVE_ICON_48),
+        (Theme::Dark, false) => (DARK_INACTIVE_ICON_24, DARK_INACTIVE_ICON_48),
+        (Theme::Light, true) => (LIGHT_ACTIVE_ICON_24, LIGHT_ACTIVE_ICON_48),
+        (Theme::Light, false) => (LIGHT_INACTIVE_ICON_24, LIGHT_INACTIVE_ICON_48),
+    };
     vec![
         Icon {
             width: 24,
             height: 24,
-            data: WIREGUARD_ICON_24.to_vec(),
+            data: data_24.to_vec(),
         },
         Icon {
             width: 48,
             height: 48,
-            data: WIREGUARD_ICON_48.to_vec(),
+            data: data_48.to_vec(),
         },
     ]
 }
@@ -190,9 +224,13 @@ mod tests {
         assert!(matches!(
             &menu[1],
             MenuItem::Standard(item)
-                if item.label == "  office (connecting…)" && !item.enabled && item.icon_name.is_empty()
+                if item.label == "office (connecting…)" && !item.enabled && item.icon_name.is_empty()
         ));
-        assert_eq!(tray.icon_name(), "wireguard");
+        assert_eq!(tray.icon_name(), "");
+        assert_eq!(
+            tray.icon_pixmap()[0].data,
+            wireguard_icons(true, Theme::Dark)[0].data
+        );
         assert_eq!(
             tray.tool_tip().description,
             "Active WireGuard tunnels: home_vpn"
@@ -230,7 +268,7 @@ mod tests {
     fn inactive_icon_and_empty_menu_have_fallbacks() {
         let (tray, _receiver, model) = fixture();
         model.lock().unwrap().apply_snapshot(Vec::new());
-        assert_eq!(tray.icon_name(), "wireguard");
+        assert_eq!(tray.icon_name(), "");
         assert_eq!(tray.tool_tip().description, "No active WireGuard tunnels");
         assert!(matches!(
             &tray.menu()[0],
@@ -240,17 +278,40 @@ mod tests {
 
     #[test]
     fn wireguard_icons_are_embedded_in_common_sizes() {
-        let icons = wireguard_icons();
-        assert_eq!(icons.len(), 2);
-        assert_eq!((icons[0].width, icons[0].height), (24, 24));
-        assert_eq!((icons[1].width, icons[1].height), (48, 48));
-        assert_eq!(icons[0].data.len(), 24 * 24 * 4);
-        assert_eq!(icons[1].data.len(), 48 * 48 * 4);
-        assert!(icons[0].data.chunks_exact(4).any(|pixel| pixel[0] == 255));
-        assert!(icons[0].data.chunks_exact(4).any(|pixel| pixel[0] == 0));
+        let active = wireguard_icons(true, Theme::Dark);
+        let inactive = wireguard_icons(false, Theme::Dark);
+        assert_eq!(active.len(), 2);
+        assert_eq!((active[0].width, active[0].height), (24, 24));
+        assert_eq!((active[1].width, active[1].height), (48, 48));
+        assert_eq!(active[0].data.len(), 24 * 24 * 4);
+        assert_eq!(active[1].data.len(), 48 * 48 * 4);
+        assert!(active[0].data.chunks_exact(4).any(|pixel| pixel[0] == 255));
+        assert!(active[0].data.chunks_exact(4).any(|pixel| pixel[0] == 0));
+        assert_ne!(active[0].data, inactive[0].data);
 
         let (tray, _receiver, _model) = fixture();
-        assert_eq!(tray.icon_pixmap().len(), 2);
+        assert_eq!(tray.icon_pixmap()[0].data, inactive[0].data);
+    }
+
+    #[test]
+    fn light_theme_has_distinct_connection_colours() {
+        let active = wireguard_icons(true, Theme::Light);
+        let inactive = wireguard_icons(false, Theme::Light);
+        assert_ne!(active[0].data, inactive[0].data);
+        assert_ne!(active[0].data, wireguard_icons(true, Theme::Dark)[0].data);
+        assert_ne!(
+            inactive[0].data,
+            wireguard_icons(false, Theme::Dark)[0].data
+        );
+
+        let model = TrayModel::shared();
+        model
+            .lock()
+            .unwrap()
+            .apply_snapshot(vec![Tunnel::new("home", true)]);
+        let (sender, _receiver) = mpsc::unbounded_channel();
+        let tray = WireguardTray::with_theme(model, sender, Theme::Light);
+        assert_eq!(tray.icon_pixmap()[0].data, active[0].data);
     }
 
     #[test]

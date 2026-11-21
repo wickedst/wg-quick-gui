@@ -98,18 +98,24 @@
                 inherit system;
                 modules = [
                   {
-                    services.wireguard-client-gui.enable = true;
+                    services.wireguard-client-gui = {
+                      enable = true;
+                      autostart = true;
+                      theme = "light";
+                    };
                     services.resolved.enable = true;
                   }
                   self.nixosModules.default
                 ];
               };
               resolvedService = resolvedEvaluated.config.systemd.services."dev.wireguardclientgui.Backend";
+              resolvedUserService = resolvedEvaluated.config.systemd.user.services.wireguard-client-gui;
             in
             assert evaluated.config.services.wireguard-client-gui.package == package;
             assert builtins.head service.path == evaluated.config.networking.resolvconf.package;
             assert builtins.head resolvedService.path == resolvedEvaluated.config.networking.resolvconf.package;
-            assert userService.serviceConfig.ExecStart == nixpkgs.lib.getExe package;
+            assert resolvedUserService.serviceConfig.ExecStart == "${nixpkgs.lib.getExe package} --theme light";
+            assert userService.serviceConfig.ExecStart == "${nixpkgs.lib.getExe package} --theme dark";
             assert userService.wantedBy == [ "graphical-session.target" ];
             assert builtins.elem "d /etc/wireguard 0700 root root -" evaluated.config.systemd.tmpfiles.rules;
             pkgs.writeText "wireguard-client-gui-module.json" (

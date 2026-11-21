@@ -2,7 +2,7 @@
 
 A little system tray app for managing your `wg-quick` tunnels. It lists the configs in `/etc/wireguard` and lets you connect or disconnect them without touching a terminal.
 
-Multiple tunnels are fine, and quitting the app leaves them connected. It works with Waybar's ordinary `tray` module, along with other StatusNotifier-compatible trays.
+One tunnel can be active at a time; connecting another disconnects the current one. Quitting the app leaves the active tunnel alone. It works with Waybar's ordinary `tray` module, along with other StatusNotifier-compatible trays.
 
 ## NixOS
 
@@ -40,6 +40,9 @@ services.wireguard-client-gui = {
 
   # Optional: start it automatically in graphical sessions.
   autostart = true;
+
+  # Optional: use black/light-grey icons for a light panel (default: dark).
+  # theme = "light";
 };
 ```
 

@@ -20,6 +20,15 @@ in
     };
 
     autostart = lib.mkEnableOption "XDG and systemd user autostart for graphical user sessions";
+
+    theme = lib.mkOption {
+      type = lib.types.enum [
+        "dark"
+        "light"
+      ];
+      default = "dark";
+      description = "Panel colour scheme used for the transparent WireGuard icon.";
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -29,7 +38,17 @@ in
     security.polkit.enable = true;
 
     environment.etc."xdg/autostart/wireguard-client-gui.desktop" = lib.mkIf cfg.autostart {
-      source = "${cfg.package}/share/applications/wireguard-client-gui.desktop";
+      text = ''
+        [Desktop Entry]
+        Type=Application
+        Name=WireGuard Client
+        Comment=Manage wg-quick tunnels from the system tray
+        Exec=${lib.getExe cfg.package} --theme ${cfg.theme}
+        Icon=wireguard
+        Terminal=false
+        Categories=Network;
+        StartupNotify=false
+      '';
     };
 
     systemd.tmpfiles.rules = [ "d /etc/wireguard 0700 root root -" ];
@@ -52,7 +71,7 @@ in
       partOf = [ "graphical-session.target" ];
       wantedBy = [ "graphical-session.target" ];
       serviceConfig = {
-        ExecStart = lib.getExe cfg.package;
+        ExecStart = "${lib.getExe cfg.package} --theme ${cfg.theme}";
         Restart = "on-failure";
       };
     };

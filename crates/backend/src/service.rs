@@ -65,12 +65,39 @@ impl Backend {
             .map_err(auth_error)?;
         let _operation = self.operation_lock.lock().await;
         if connect {
-            self.wireguard.connect(name).await.map_err(operation_error)
+            self.connect_exclusive(name).await
         } else {
             self.wireguard
                 .disconnect(name)
                 .await
                 .map_err(operation_error)
+        }
+    }
+
+    async fn connect_exclusive(&self, name: &str) -> fdo::Result<()> {
+        // Validate the destination before changing any existing tunnel. Interfaces without a
+        // matching managed config are deliberately left alone.
+        self.wireguard.config_path(name).map_err(operation_error)?;
+        let active = self
+            .wireguard
+            .active_interfaces()
+            .await
+            .map_err(operation_error)?;
+        let target_active = active.iter().any(|interface| interface == name);
+
+        for interface in active {
+            if interface != name && self.wireguard.config_path(&interface).is_ok() {
+                self.wireguard
+                    .disconnect(&interface)
+                    .await
+                    .map_err(operation_error)?;
+            }
+        }
+
+        if target_active {
+            Ok(())
+        } else {
+            self.wireguard.connect(name).await.map_err(operation_error)
         }
     }
 }
@@ -100,7 +127,7 @@ impl Backend {
         self.active_interfaces_inner().await
     }
 
-    /// Run `wg-quick up` for an authorized caller.
+    /// Disconnect other managed tunnels, then run `wg-quick up` for an authorized caller.
     async fn connect(
         &self,
         name: &str,
@@ -262,11 +289,69 @@ mod tests {
             .disconnect_for_sender("home", Some(":1.42"))
             .await
             .unwrap();
-        assert_eq!(fs::read_to_string(log).unwrap(), "up\ndown\n");
+        assert_eq!(fs::read_to_string(log).unwrap(), "show\nup\ndown\n");
         assert_eq!(
             *authorizer.callers.lock().await,
             [Some(":1.42".to_owned()), Some(":1.42".to_owned())]
         );
+    }
+
+    #[tokio::test]
+    async fn connect_replaces_only_other_managed_tunnels() {
+        let temp = TempDir::new().unwrap();
+        for name in ["home", "office", "new"] {
+            fs::write(temp.path().join(format!("{name}.conf")), "[Interface]\n").unwrap();
+        }
+        let log = temp.path().join("actions");
+        let wg_quick = script(
+            temp.path(),
+            "wg-quick",
+            &format!("printf '%s\\n' \"$@\" >> '{}'", log.display()),
+        );
+        let wg = script(temp.path(), "wg", "printf 'home office external\\n'");
+        let wireguard = Wireguard::new(temp.path(), wg_quick, wg, Duration::from_secs(2));
+        let backend = Backend::new(wireguard, Arc::new(TestAuthorizer::new(Decision::Allow)));
+
+        backend
+            .connect_for_sender("new", Some(":1.42"))
+            .await
+            .unwrap();
+
+        let actions = fs::read_to_string(log).unwrap();
+        let home = temp.path().join("home.conf");
+        let office = temp.path().join("office.conf");
+        let new = temp.path().join("new.conf");
+        assert_eq!(
+            actions,
+            format!(
+                "down\n{}\ndown\n{}\nup\n{}\n",
+                home.display(),
+                office.display(),
+                new.display()
+            )
+        );
+        assert!(!actions.contains("external.conf"));
+    }
+
+    #[tokio::test]
+    async fn already_active_destination_does_not_run_wg_quick() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("home.conf"), "[Interface]\n").unwrap();
+        let marker = temp.path().join("executed");
+        let wg_quick = script(
+            temp.path(),
+            "wg-quick",
+            &format!("touch '{}'", marker.display()),
+        );
+        let wg = script(temp.path(), "wg", "printf 'home external\\n'");
+        let wireguard = Wireguard::new(temp.path(), wg_quick, wg, Duration::from_secs(2));
+        let backend = Backend::new(wireguard, Arc::new(TestAuthorizer::new(Decision::Allow)));
+
+        backend
+            .connect_for_sender("home", Some(":1.42"))
+            .await
+            .unwrap();
+        assert!(!marker.exists());
     }
 
     #[tokio::test]

@@ -11,7 +11,7 @@ use tokio::{
 
 use crate::{
     claim_tray_instance, Action, ActionOutcome, ClientError, Controller, Notifier, SharedModel,
-    TrayModel, WireguardTray, ZbusBackendClient,
+    Theme, TrayModel, WireguardTray, ZbusBackendClient,
 };
 
 const REFRESH_INTERVAL: Duration = Duration::from_secs(5);
@@ -71,6 +71,7 @@ impl crate::BackendClient for UnavailableClient {
 pub async fn run(
     client: Result<ZbusBackendClient, ClientError>,
     notifier: Arc<dyn Notifier>,
+    theme: Theme,
 ) -> Result<(), TrayError> {
     let instance_connection = zbus::Connection::session().await?;
     match claim_tray_instance(&instance_connection).await {
@@ -82,7 +83,7 @@ pub async fn run(
 
     let model = TrayModel::shared();
     let (actions, receiver) = mpsc::unbounded_channel();
-    let tray = WireguardTray::new(model.clone(), actions.clone());
+    let tray = WireguardTray::with_theme(model.clone(), actions.clone(), theme);
     let handle = tray.assume_sni_available(true).spawn().await?;
 
     let (client, changed) = match client {
