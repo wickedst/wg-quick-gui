@@ -21,7 +21,6 @@ let
   runtimeTools = [
     wireguard-tools
     iproute2
-    openresolv
     iptables
     nftables
     procps
@@ -54,7 +53,8 @@ rustPlatform.buildRustPackage {
     wrapProgram "$out/libexec/wireguard-client-gui-backend" \
       --set WIREGUARD_CLIENT_GUI_WG_QUICK ${lib.getExe' wireguard-tools "wg-quick"} \
       --set WIREGUARD_CLIENT_GUI_WG ${lib.getExe' wireguard-tools "wg"} \
-      --prefix PATH : ${lib.makeBinPath runtimeTools}
+      --prefix PATH : ${lib.makeBinPath runtimeTools} \
+      --suffix PATH : ${lib.makeBinPath [ openresolv ]}
 
     install -Dm644 ${../resources/dev.wireguardclientgui.Backend.service} \
       "$out/share/dbus-1/system-services/dev.wireguardclientgui.Backend.service"
