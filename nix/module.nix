@@ -55,6 +55,9 @@ in
 
     systemd.services."dev.wireguardclientgui.Backend" = {
       description = "WireGuard Client privileged wg-quick backend";
+      # Start before graphical sessions instead of racing D-Bus activation on first login.
+      wantedBy = [ "multi-user.target" ];
+      after = [ "dbus.service" ];
       # Use openresolv or the systemd-resolved compatibility layer, matching wg-quick on NixOS.
       path = lib.mkBefore [ config.networking.resolvconf.package ];
       serviceConfig = {

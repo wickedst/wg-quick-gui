@@ -1,6 +1,10 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
-use crate::{BackendClient, Notifier, SharedModel};
+use tokio::time::timeout;
+
+use crate::{BackendClient, ClientError, Notifier, SharedModel};
+
+const REFRESH_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// User or timer action handled by the tray controller.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,7 +61,17 @@ impl Controller {
 
     /// Refresh state and notify only when a new error occurs.
     pub async fn refresh(&self) -> ActionOutcome {
-        match self.client.snapshot().await {
+        self.refresh_with_timeout(REFRESH_TIMEOUT).await
+    }
+
+    async fn refresh_with_timeout(&self, duration: Duration) -> ActionOutcome {
+        let result = match timeout(duration, self.client.snapshot()).await {
+            Ok(result) => result,
+            Err(_) => Err(ClientError(format!(
+                "backend did not respond within {duration:?}"
+            ))),
+        };
+        match result {
             Ok(tunnels) => {
                 self.model.lock().unwrap().apply_snapshot(tunnels);
             }
@@ -322,6 +336,41 @@ mod tests {
             ActionOutcome::Ignored
         );
         assert!(fixture.client.calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn hanging_backends_time_out_instead_of_loading_forever() {
+        struct HangingClient;
+
+        #[async_trait]
+        impl BackendClient for HangingClient {
+            async fn snapshot(&self) -> Result<Vec<Tunnel>, ClientError> {
+                std::future::pending().await
+            }
+
+            async fn set_connected(
+                &self,
+                _name: &str,
+                _connected: bool,
+            ) -> Result<(), ClientError> {
+                Ok(())
+            }
+        }
+
+        let model = TrayModel::shared();
+        let notifier = Arc::new(MockNotifier::default());
+        let controller = Controller::new(Arc::new(HangingClient), notifier.clone(), model.clone());
+        controller
+            .refresh_with_timeout(Duration::from_millis(10))
+            .await;
+
+        assert_eq!(
+            model.lock().unwrap().menu_entries(),
+            [crate::MenuEntry::Message("Backend unavailable".to_owned())]
+        );
+        let messages = notifier.messages.lock().await;
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].1.contains("10ms"));
     }
 
     #[tokio::test]

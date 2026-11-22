@@ -112,6 +112,8 @@
               resolvedUserService = resolvedEvaluated.config.systemd.user.services.wireguard-client-gui;
             in
             assert evaluated.config.services.wireguard-client-gui.package == package;
+            assert builtins.elem "multi-user.target" service.wantedBy;
+            assert builtins.elem "dbus.service" service.after;
             assert builtins.head service.path == evaluated.config.networking.resolvconf.package;
             assert builtins.head resolvedService.path == resolvedEvaluated.config.networking.resolvconf.package;
             assert resolvedUserService.serviceConfig.ExecStart == "${nixpkgs.lib.getExe package} --theme light";
